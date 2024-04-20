@@ -162,16 +162,31 @@ fn try_gift_sequence(karma:f64, order:&[GType]) -> [AverageRank;3] {
         if gift_freq >= 3 {
             panic!("Gift {gift_elem:?} occurred in the order list more than 3 times!\nlist:{order:?}")
         }
-        let gift_chance = gift_probabilities(karma, *gift_elem).chosen[gift_freq];
+        let prob = gift_probabilities(karma, *gift_elem);
+        let gift_chance = prob.chosen[gift_freq];
         let gifts_added = apply_probability(&mut remaining, gift_chance);
 
         result[gift_index][0] += gifts_added;
 
         //different rank calculations using gifts_added
+        let rank2added = gifts_added * prob.rank_up[0];
+        result[gift_index][1] +=  rank2added;
+        let rank3added = gifts_added * prob.rank_up[1];
+        result[gift_index][2] +=  rank3added;
 
         frequency[gift_index] += 1;
     }
     return result;
+}
+
+fn merge(rankings1:[AverageRank;3], rankings2:[AverageRank;3]) -> [AverageRank;3] {
+    let mut result = [[0.0;3];3];
+    for i in 0..=2 {
+        for j in 0..=2 {
+            result[i][j] = 0.5* rankings1[i][j] + 0.5*rankings2[i][j];
+        }
+    }
+    result
 }
 
 
@@ -206,45 +221,17 @@ impl PlotProgram {
         let mut bounty = Vec::new();
         for i in karma_range {
             let i = *i as f64 / 100.0;
-            let mut remaining = [1.0, 1.0, 1.0];
 
-            let mut power_elem = 0.0;
-            let power_chance = power_probabilities(i);
-            for j in 0..=2 {
-                let chance = power_chance.chosen[j];
-                power_elem += apply_probability(&mut remaining, chance);
-            }
 
-            //bonus
-            let mut bonus_elem = 0.0;
-            let bonus_c = bonus_probabilities(i).chosen;
-            let mut quick_elem = 0.0;
-            let quick_c = quick_probabilities(i).chosen;
-
-            //first try
-            bonus_elem += apply_probability(&mut remaining, bonus_c[0]);
-            //split into two alternative universes: bonus, bonus, quick, quick and bonus, quick, bonus, quick,
-            let mut remaining2 = remaining.clone();
-
-            //second try
-            quick_elem += 0.5*apply_probability(&mut remaining2, quick_c[0]);
-            bonus_elem += 0.5*apply_probability(&mut remaining, bonus_c[1]);
-
-            //third try
-            bonus_elem += 0.5*apply_probability(&mut remaining2, bonus_c[1]);
-            quick_elem += 0.5*apply_probability(&mut remaining, quick_c[0]);
-
-            //fourth try
-            quick_elem += 0.5*apply_probability(&mut remaining2, quick_c[1]);
-            quick_elem += 0.5*apply_probability(&mut remaining, quick_c[1]);
-
-            //quick gifts
+            let order1 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Bonus, GType::Quick, GType::Quick];
+            let order2 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Quick, GType::Bonus, GType::Quick];
+            let [power_elem,bonus_elem, quick_elem] = merge(try_gift_sequence(i, &order1), try_gift_sequence(i, &order2));
 
             let mut bounty_elem = 1.0;
 
-            power.push([power_elem, power_elem/2.0, power_elem/4.0]);
-            bonus.push([bonus_elem, bonus_elem/2.0, bonus_elem/4.0]);
-            quick.push([quick_elem, quick_elem/2.0, quick_elem/4.0]);
+            power.push(power_elem);
+            bonus.push(bonus_elem);
+            quick.push(quick_elem);
             bounty.push([bounty_elem, bounty_elem/2.0, bounty_elem/4.0]);
             
 
