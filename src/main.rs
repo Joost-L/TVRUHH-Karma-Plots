@@ -14,7 +14,8 @@ fn main() {
 struct PlotProgram { 
     karma_range:Vec<i32>,
     domain_settings:DomainSettings,
-    gift_chance:GiftChance
+    gift_chance:GiftChance,
+    wonderful_count:usize,
 }
 
 #[derive(Default,Clone)]
@@ -146,15 +147,26 @@ fn apply_probability(remaining:&mut [f64;3], chance:f64) -> f64 {
     total_added
 }
 
+fn powhalf(x:usize) -> f64 {
+    if x > 0 {
+        0.5*powhalf(x - 1)
+    } else {
+        1.0
+    }
+}
+
 /// Calculates the average number of gifts of each type after several "Try add gift" actions in a specific order
 /// 
-fn try_gift_sequence(karma:f64, order:&[GType]) -> [AverageRank;3] {
+fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize) -> [AverageRank;3] {
     //data per gift
     let mut frequency = [0,0,0];
     let mut result = [[0.0;3];3];
 
     //open gift slots
     let mut remaining = [1.0, 1.0, 1.0];
+    
+    //for wonderful gifts: the probability that you have i wonderful gifts
+    let mut w_counts = [0.0,0.0,0.0];
 
     for gift_elem in order {
         let gift_index = *gift_elem as usize;
@@ -174,8 +186,24 @@ fn try_gift_sequence(karma:f64, order:&[GType]) -> [AverageRank;3] {
         let rank3added = gifts_added * prob.rank_up[1];
         result[gift_index][2] +=  rank3added;
 
+        if let GType::Power = gift_elem {
+
+            // we add the probability that we are in a situation where we have i gifts
+            // times the probability that we get a wonderful gift in that situation
+            // and add that to the probability we will receive i + 1 wonderful power gifts
+            let mut acc_prob = 1.0;
+            let rank3chance = rank2added * prob.rank_up[1];
+            for i in 0..=2 {
+                let situation_chance = (1.0 - w_counts[i]) * acc_prob;
+                let added_prob = situation_chance * rank3chance * powhalf(wonderful_count + i);
+                acc_prob -= 1.0 - w_counts[i];
+                w_counts[i] += added_prob;
+            }
+        }
+
         frequency[gift_index] += 1;
     }
+    result[0][2] = w_counts[0] + w_counts[1] + w_counts[2];
     return result;
 }
 
@@ -225,7 +253,10 @@ impl PlotProgram {
 
             let order1 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Bonus, GType::Quick, GType::Quick];
             let order2 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Quick, GType::Bonus, GType::Quick];
-            let [power_elem,bonus_elem, quick_elem] = merge(try_gift_sequence(i, &order1), try_gift_sequence(i, &order2));
+            let [power_elem,bonus_elem, quick_elem] = merge(
+                try_gift_sequence(i, &order1, self.wonderful_count), 
+                try_gift_sequence(i, &order2, self.wonderful_count)
+            );
 
             let mut bounty_elem = 1.0;
 
@@ -263,7 +294,6 @@ impl PlotProgram {
 // ----------------------- USER INTERACTION -------------------------
 
 
-
 impl eframe::App for PlotProgram {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -289,6 +319,12 @@ impl eframe::App for PlotProgram {
                     .prefix("step: ")).changed() {
                         recalc = true
                 }
+                if ui.add(egui::DragValue::new(&mut self.wonderful_count)
+                    .clamp_range(0..=4)
+                    .speed(1.0)
+                    .prefix("gifts: ")).changed() {
+                        recalc = true
+                }
                 if recalc {self.recalc()}
             });
             let power_color = egui::ecolor::Color32::from_hex("#2a3c78").unwrap();
@@ -307,7 +343,7 @@ impl eframe::App for PlotProgram {
                 .allow_scroll(false)
                 .allow_zoom(false)
                 .x_axis_label("karma")
-                .y_axis_label("average amount")
+                .y_axis_label("average amount of gifts")
                 .legend(plt::Legend::default().position(plt::Corner::LeftTop))
                 .show(ui, |plot_ui| {
                     for list in chart_list {
