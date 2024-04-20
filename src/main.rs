@@ -36,6 +36,7 @@ type AverageRank = [f64;3];
 
 struct Probabilities {
     chosen:[f64;3],
+    rank_up:[f64;2]
 }
 
 #[derive(Copy,Clone,Debug)]
@@ -81,6 +82,10 @@ fn power_probabilities(karma: f64) -> Probabilities {
             1.0,
             clamp(karma * 0.6, 0.1, 0.9),
             clamp(karma - 0.9, 0.0, 0.9)
+        ],
+        rank_up: [
+            clamp(0.12 + karma*0.5,0.12,0.8),
+            clamp(-0.04 + karma*0.4, 0.0, 0.45)
         ]
     }
 } 
@@ -91,6 +96,10 @@ fn bonus_probabilities(karma: f64) -> Probabilities {
             clamp(0.1 + 0.7*karma, 0.25, 0.9),
             clamp(0.7*karma, 0.1, 0.9),
             0.0
+        ],
+        rank_up: [
+            clamp(0.10 + karma*0.7, 0.15, 0.9),
+            clamp(-0.06 + karma*0.6, 0.0, 0.5)
         ]
     }
 }
@@ -101,6 +110,10 @@ fn quick_probabilities(karma: f64) -> Probabilities {
             clamp(0.1 + 0.3*karma, 0.15, 0.5),
             clamp(0.05 + 0.3*karma, 0.05, 0.5),
             0.0
+        ],
+        rank_up: [
+            clamp(0.1 + 0.6*karma, 0.15, 0.8),
+            clamp(-0.06 + 0.5*karma, 0.1, 0.8)
         ]
     }
 }
