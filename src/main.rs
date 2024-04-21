@@ -85,45 +85,70 @@ fn gift_probabilities(karma:f64, gift_type:GType, chapter:Chapter) -> Probabilit
 
 
 fn power_probabilities(karma: f64,chapter:Chapter) -> Probabilities {
-    Probabilities {
-        chosen: [
-            1.0,
-            clamp(karma * 0.6, 0.1, 0.9),
-            clamp(karma - 0.9, 0.0, 0.9)
-        ],
-        rank_up: [
-            clamp(0.12 + karma*0.5,0.12,0.8),
-            clamp(-0.04 + karma*0.4, 0.0, 0.45)
-        ]
+    match chapter {
+        Chapter::Story => Probabilities {
+            chosen: [
+                1.0,
+                clamp(karma * 0.6, 0.1, 0.9),
+                clamp(karma - 0.9, 0.0, 0.9)
+            ],
+            rank_up: [
+                clamp(0.12 + karma*0.5,0.12,0.8),
+                clamp(-0.04 + karma*0.4, 0.0, 0.45)
+            ]},
+        Chapter::AStory => Probabilities { 
+            chosen: [0.0;3], 
+            rank_up: [0.0;2] 
+        }
+
     }
+    
 } 
 
 fn bonus_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
-    Probabilities { 
-        chosen: [
-            clamp(0.1 + 0.7*karma, 0.25, 0.9),
-            clamp(0.7*karma, 0.1, 0.9),
-            0.0
-        ],
-        rank_up: [
-            clamp(0.10 + karma*0.7, 0.15, 0.9),
-            clamp(-0.06 + karma*0.6, 0.0, 0.5)
-        ]
+    match chapter {
+        Chapter::Story => Probabilities { 
+            chosen: [
+                clamp(0.1 + 0.7*karma, 0.25, 0.9),
+                clamp(0.7*karma, 0.1, 0.9),
+                0.0
+            ],
+            rank_up: [
+                clamp(0.10 + karma*0.7, 0.15, 0.9),
+                clamp(-0.06 + karma*0.6, 0.0, 0.5)
+            ]},
+        Chapter::AStory => Probabilities { 
+            chosen: [clamp(0.05 + 0.3*karma, 0.05, 0.9),0.0,0.0], 
+            rank_up: [
+                clamp(0.1 + 0.3 *karma, 0.15, 0.9),
+                clamp(-0.06 + 0.3*karma, 0.0, 0.5)
+            ] }
     }
+    
+    
 }
 
 fn quick_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
-    Probabilities { 
-        chosen: [
-            clamp(0.1 + 0.3*karma, 0.15, 0.5),
-            clamp(0.05 + 0.3*karma, 0.05, 0.5),
-            0.0
-        ],
-        rank_up: [
-            clamp(0.1 + 0.6*karma, 0.15, 0.8),
-            clamp(-0.06 + 0.5*karma, 0.1, 0.8)
-        ]
+    match chapter {
+        Chapter::Story => Probabilities { 
+            chosen: [
+                clamp(0.1 + 0.3*karma, 0.15, 0.5),
+                clamp(0.05 + 0.3*karma, 0.05, 0.5),
+                0.0
+            ],
+            rank_up: [
+                clamp(0.1 + 0.6*karma, 0.15, 0.8),
+                clamp(-0.06 + 0.5*karma, 0.1, 0.8)
+            ]},
+        Chapter::AStory => Probabilities { 
+            chosen: [clamp(0.05 + 0.3*karma, 0.05, 0.9),0.0,0.0], 
+            rank_up: [
+                clamp(0.1 + 0.3*karma, 0.15, 0.8),
+                clamp(-0.06 + 0.3*karma, 0.0, 0.5)
+            ] }
     }
+    
+    
 }
 
 // -------------- ARITHMATIC FUNCTIONS ---------------
@@ -247,6 +272,19 @@ impl PlotProgram {
         self.recalc_giftchance();
     }
 
+    fn story_sequence(&self, i:f64) -> [AverageRank;3] {
+        let order1 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Bonus, GType::Quick, GType::Quick];
+        let order2 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Quick, GType::Bonus, GType::Quick];
+        return merge(
+            try_gift_sequence(i, &order1, self.wonderful_count, self.chapter), 
+            try_gift_sequence(i, &order2, self.wonderful_count, self.chapter)
+        );
+    }
+
+    fn alter_story_sequence(&self, i:f64) -> [AverageRank;3] {
+        let order = [GType::Bonus, GType::Quick];
+        try_gift_sequence(i, &order, 0, self.chapter)
+    }
 
     fn recalc_giftchance(&mut self) {
         let karma_range = &self.karma_range;
@@ -256,15 +294,10 @@ impl PlotProgram {
         let mut bounty = Vec::new();
         for i in karma_range {
             let i = *i as f64 / 100.0;
-
-
-            let order1 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Bonus, GType::Quick, GType::Quick];
-            let order2 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Quick, GType::Bonus, GType::Quick];
-            let [power_elem,bonus_elem, quick_elem] = merge(
-                try_gift_sequence(i, &order1, self.wonderful_count, self.chapter), 
-                try_gift_sequence(i, &order2, self.wonderful_count, self.chapter)
-            );
-
+            let [power_elem,bonus_elem, quick_elem] = match self.chapter {
+                Chapter::Story => self.story_sequence(i),
+                Chapter::AStory => self.alter_story_sequence(i)
+            };
             let mut bounty_elem = 1.0;
 
             power.push(power_elem);
@@ -306,14 +339,12 @@ impl eframe::App for PlotProgram {
         egui::CentralPanel::default().show(ctx, |ui| {
             //setting buttons
             let mut recalc = false;
-            if egui::ComboBox::from_label("Chapter")
+            egui::ComboBox::from_label("Chapter")
                     .selected_text(format!("{:?}",self.chapter))
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.chapter, Chapter::Story, "Story");
-                        ui.selectable_value(&mut self.chapter, Chapter::AStory, "Alter Story")
-                    }).response.changed() {
-                    recalc = true;
-                }
+                        if ui.selectable_value(&mut self.chapter, Chapter::Story, "Story").clicked() {recalc = true};
+                        if ui.selectable_value(&mut self.chapter, Chapter::AStory, "Alter Story").clicked() {recalc = true};
+                    });
 
             ui.horizontal(|ui| {
                 let settings = &mut self.domain_settings;
@@ -325,7 +356,7 @@ impl eframe::App for PlotProgram {
                         recalc = true;
                 }
                 if ui.add(egui::DragValue::new(&mut settings.max)
-                    .clamp_range(settings.min..=200)
+                    .clamp_range(settings.min..=300)
                     .speed(1.0)
                     .prefix("max: ")).changed() {
                         recalc = true
@@ -346,9 +377,6 @@ impl eframe::App for PlotProgram {
                 
             });
             if recalc {self.recalc()}
-            let power_color = egui::ecolor::Color32::from_hex("#2a3c78").unwrap();
-            let bonus_color = egui::ecolor::Color32::from_hex("#e3dc66").unwrap();
-            let quick_color = egui::ecolor::Color32::from_hex("#51da6d").unwrap();
 
             let power_gifts = self.gift_chart(GType::Power,&self.gift_chance.power,"power");
             let bonus_gifts = self.gift_chart(GType::Bonus,&self.gift_chance.bonus,"bonus").map(|c| c.stack_on(&[&power_gifts[0]]));
