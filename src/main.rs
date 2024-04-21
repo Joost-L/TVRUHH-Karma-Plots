@@ -155,7 +155,7 @@ fn quick_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
             rank_up: [
                 clamp(0.1 + 0.6*karma, 0.15, 0.8),
                 match chapter {
-                    Chapter::Story  => clamp(-0.06 + 0.5*karma, 0.1, 0.8),
+                    Chapter::Story  => clamp(-0.06 + 0.5*karma, 0.0, 0.5),
                     _               => clamp(-0.06 + 0.4*karma, 0.0, 0.5)
                 }
             ]},
@@ -279,7 +279,29 @@ fn tower_initial_sequence(karma:f64) -> ([f64;3], [AverageRank;6]) {
 }
 
 fn special_tower_initial_sequence(karma:f64, wonderful_count:usize) -> ([f64;3], [AverageRank;6]) {
-    panic!("Special towers isnt finished yet!");
+    let mut gift_ranks = [[0.0;3];6];
+    let power_prob = gift_probabilities(karma, GType::Power, Chapter::Towers);
+
+    //blessings
+    let mut power_ranks = [1.0, power_prob.rank_up[0], 0.0];
+    power_ranks[2] = power_ranks[1] * power_prob.rank_up[1] * powhalf(wonderful_count);
+
+    //burden split
+    let mut burden_ranks = [0.0;3];
+    burden_ranks[0] = power_ranks[1]/3.0;
+    burden_ranks[1] = power_ranks[2]/2.0;
+    burden_ranks[2] = burden_ranks[1];
+
+    //burden merge
+    burden_ranks[1] += burden_ranks[2];
+    burden_ranks[0] += burden_ranks[1];
+
+    //add results to the general list
+    gift_ranks[GType::Power as usize] = power_ranks;
+    gift_ranks[GType::Burden as usize] = burden_ranks;
+
+    let remaining = [0.0, 1.0 - burden_ranks[0], 1.0];
+    return (remaining, gift_ranks);
 }
 
 /// Calculates the average number of gifts of each type after several "Try add gift" actions in a specific order
@@ -333,13 +355,13 @@ fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:C
                 acc_prob -= 1.0 - w_counts[i];
                 w_counts[i] += added_prob;
             }
+
+            //save the accumulated amount of wonderful gifts
+            result[0][2] = w_counts[0] + w_counts[1] + w_counts[2];
         }
 
         frequency[gift_index] += 1;
     }
-
-    //wonderful gifts
-    result[0][2] = w_counts[0] + w_counts[1] + w_counts[2];
 
     //bounty gifts
     result[5] = bounty_average_rank(karma, chapter);
@@ -522,14 +544,22 @@ impl eframe::App for PlotProgram {
 
             // find barchart based on vector data
             let power_gifts = self.gift_chart(GType::Power, &self.gift_chance.power,"power");
-            let blessing_gifts = self.gift_chart(GType::Blessing, &self.gift_chance.blessing,"blessing").map(|c| c.stack_on(&[&power_gifts[0]]));
-            let burden_gifts = self.gift_chart(GType::Burden, &self.gift_chance.burden,"burden").map(|c| c.stack_on(&[&blessing_gifts[0]]));
-            let bonus_gifts = self.gift_chart(GType::Bonus, &self.gift_chance.bonus,"bonus").map(|c| c.stack_on(&[&burden_gifts[0]]));
+            let mut blessing_gifts = self.gift_chart(GType::Blessing, &self.gift_chance.blessing,"blessing").map(|c| c.stack_on(&[&power_gifts[0]]));
+            let mut burden_gifts = self.gift_chart(GType::Burden, &self.gift_chance.burden,"burden").map(|c| c.stack_on(&[&blessing_gifts[0]]));
+            let mut bonus_gifts = self.gift_chart(GType::Bonus, &self.gift_chance.bonus,"bonus").map(|c| c.stack_on(&[&burden_gifts[0]]));
             let quick_gifts = self.gift_chart(GType::Quick, &self.gift_chance.quick,"quick").map(|c| c.stack_on(&[&bonus_gifts[0]]));
             
             let bounty_gifts = self.gift_chart(GType::Bounty, &self.gift_chance.bounty, "bounty");
 
-            
+            //different stack order for special tower mode
+            if let Chapter::SpecialTowers = self.chapter {
+                burden_gifts = burden_gifts.map(|c| c.stack_on(&[&power_gifts[0]]));
+                bonus_gifts = bonus_gifts.map(|c| c.stack_on(&[&burden_gifts[0]]));
+                blessing_gifts = blessing_gifts.map(|c| c.stack_on(&[&bonus_gifts[0]]));
+            }
+
+
+
             //set visibility of graphs
             let mut chart_list = match self.chapter {
                 Chapter::Story => vec![power_gifts, bonus_gifts, quick_gifts],
