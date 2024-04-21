@@ -45,7 +45,10 @@ struct Probabilities {
 enum GType {
     Power,
     Bonus,
-    Quick
+    Quick,
+    Blessing,
+    Burden,
+    Bounty
 }
 
 #[derive(Copy, Clone, Debug, Default,PartialEq)]
@@ -54,21 +57,23 @@ enum Chapter {
     Story,
     AStory
 }
-enum GRank {
-    Simple,
-    Lovely,
-    Wonderful,
-}
 
 const POWER_COLORS:[&str;3] = ["#2a2a59","#44338e","#9b73d6"];
 const BONUS_COLORS:[&str;3] = ["#f0892b","#eabd57","#e3dc66"];
 const QUICK_COLORS:[&str;3] = ["#069c80","#0ebc80","#71e380"];
+const BLESS_COLORS:[&str;3] = ["#8534ae","#cf2be2","#f648e3"];
+const BURDN_COLORS:[&str;3] = ["#4a3845","#aa7799","#dec0c9"];
+const BOUNT_COLORS:[&str;3] = ["#527ea8","#66b5d5","#77e1ec"];
+
 
 fn gift_color(gift_type:GType, rank:usize)-> Color32 {
     let hex_color = match gift_type {
         GType::Power => POWER_COLORS[rank],
         GType::Bonus => BONUS_COLORS[rank],
-        GType::Quick => QUICK_COLORS[rank]
+        GType::Quick => QUICK_COLORS[rank],
+        GType::Blessing => BLESS_COLORS[rank],
+        GType::Burden => BURDN_COLORS[rank],
+        GType::Bounty => BOUNT_COLORS[rank]
     };
     egui::ecolor::Color32::from_hex(hex_color).unwrap()
 }
@@ -79,7 +84,12 @@ fn gift_probabilities(karma:f64, gift_type:GType, chapter:Chapter) -> Probabilit
     match gift_type {
         GType::Power => power_probabilities(karma, chapter),
         GType::Bonus => bonus_probabilities(karma, chapter),
-        GType::Quick => quick_probabilities(karma, chapter)
+        GType::Quick => quick_probabilities(karma, chapter),
+        GType::Bounty => bounty_probabilities(karma, chapter),
+        GType::Blessing => Probabilities { 
+            chosen: power_probabilities(karma,chapter).chosen, 
+            rank_up: quick_probabilities(karma,chapter).rank_up },
+        GType::Burden => panic!("Burdens do not have any probabilities")
     }
 }
 
@@ -150,6 +160,24 @@ fn quick_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
     
     
 }
+
+fn bounty_probabilities(karma:f64, chapter:Chapter) -> Probabilities {
+    match chapter {
+        Chapter::Story => Probabilities { 
+            chosen: [clamp(-0.02 + 0.2*karma, 0.0, 0.3), 0.0, 0.0], 
+            rank_up: [
+                clamp(0.1 + 0.5*karma, 0.1, 0.8),
+                clamp(-0.05 + 0.5*karma, 0.0, 0.5)
+            ] },
+        Chapter::AStory => Probabilities { 
+            chosen: [clamp(0.1 + 0.5*(karma - 1.0), 0.2, 0.8),0.0, 0.0], 
+            rank_up: [
+                clamp(0.2 + 0.5*(karma - 1.0), 0.2, 0.8),
+                clamp(0.1 + 0.4*(karma - 1.0), 0.1, 0.5)
+            ] }
+    }
+}
+
 
 // -------------- ARITHMATIC FUNCTIONS ---------------
 
