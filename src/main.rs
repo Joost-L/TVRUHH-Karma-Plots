@@ -58,7 +58,9 @@ enum GType {
 enum Chapter {
     #[default]
     Story,
-    AStory
+    AStory,
+    Towers,
+    SpecialTowers
 }
 
 const POWER_COLORS:[&str;3] = ["#2a2a59","#44338e","#9b73d6"];
@@ -98,29 +100,30 @@ fn gift_probabilities(karma:f64, gift_type:GType, chapter:Chapter) -> Probabilit
 
 
 fn power_probabilities(karma: f64,chapter:Chapter) -> Probabilities {
-    match chapter {
-        Chapter::Story => Probabilities {
-            chosen: [
+    Probabilities {
+        chosen: match chapter {
+            Chapter::Story => [
                 1.0,
                 clamp(karma * 0.6, 0.1, 0.9),
                 clamp(karma - 0.9, 0.0, 0.9)
             ],
-            rank_up: [
-                clamp(0.12 + karma*0.5,0.12,0.8),
-                clamp(-0.04 + karma*0.4, 0.0, 0.45)
-            ]},
-        Chapter::AStory => Probabilities { 
-            chosen: [0.0;3], 
-            rank_up: [0.0;2] 
-        }
-
+            Chapter::AStory => [0.0;3],
+            Chapter::Towers | Chapter::SpecialTowers => [
+                1.0,
+                clamp(0.2*karma, 0.0, 0.5),
+                0.0
+            ]
+        },
+        rank_up: [
+            clamp(0.12 + karma*0.5,0.12,0.8),
+            clamp(-0.04 + karma*0.4, 0.0, 0.45)
+        ]
     }
-    
 } 
 
 fn bonus_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
     match chapter {
-        Chapter::Story => Probabilities { 
+        Chapter::Story | Chapter::Towers | Chapter::SpecialTowers => Probabilities { 
             chosen: [
                 clamp(0.1 + 0.7*karma, 0.25, 0.9),
                 clamp(0.7*karma, 0.1, 0.9),
@@ -143,7 +146,7 @@ fn bonus_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
 
 fn quick_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
     match chapter {
-        Chapter::Story => Probabilities { 
+        Chapter::Story | Chapter::Towers | Chapter::SpecialTowers => Probabilities { 
             chosen: [
                 clamp(0.1 + 0.3*karma, 0.15, 0.5),
                 clamp(0.05 + 0.3*karma, 0.05, 0.5),
@@ -151,7 +154,10 @@ fn quick_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
             ],
             rank_up: [
                 clamp(0.1 + 0.6*karma, 0.15, 0.8),
-                clamp(-0.06 + 0.5*karma, 0.1, 0.8)
+                match chapter {
+                    Chapter::Story  => clamp(-0.06 + 0.5*karma, 0.1, 0.8),
+                    _               => clamp(-0.06 + 0.4*karma, 0.0, 0.5)
+                }
             ]},
         Chapter::AStory => Probabilities { 
             chosen: [clamp(0.05 + 0.3*karma, 0.05, 0.9),0.0,0.0], 
@@ -177,7 +183,13 @@ fn bounty_probabilities(karma:f64, chapter:Chapter) -> Probabilities {
             rank_up: [
                 clamp(0.2 + 0.5*(karma - 1.0), 0.2, 0.8),
                 clamp(0.1 + 0.4*(karma - 1.0), 0.1, 0.5)
-            ] }
+            ] },
+        Chapter::Towers | Chapter::SpecialTowers => Probabilities { 
+            chosen: [clamp(0.3*karma, 0.0, 0.5),0.0, 0.0], 
+            rank_up: [
+                clamp(0.1 + 0.4*karma, 0.1, 0.8),
+                clamp(-0.05 + 0.3*karma, 0.0, 0.5)
+            ] },
     }
 }
 
@@ -333,6 +345,20 @@ impl PlotProgram {
         try_gift_sequence(i, &order, 0, self.chapter)
     }
 
+    fn tower_sequence(&self, i:f64) -> [AverageRank;6] {
+        let order = [GType::Bonus, GType::Quick];
+        try_gift_sequence(i,&order, 0, self.chapter)
+    }
+
+    fn special_tower_sequence(&self, i:f64) -> [AverageRank;6] {
+        let order1 = [GType::Blessing, GType::Bonus, GType::Bonus];
+        let order2 = [GType::Bonus, GType::Bonus, GType::Blessing];
+        return merge(
+            try_gift_sequence(i, &order1, self.wonderful_count, self.chapter), 
+            try_gift_sequence(i, &order2, self.wonderful_count, self.chapter)
+        );
+    }
+
     fn recalc_giftchance(&mut self) {
         let karma_range = &self.karma_range;
         let mut power = Vec::new();
@@ -346,7 +372,9 @@ impl PlotProgram {
             let [power_elem, bonus_elem, quick_elem, bless_elem, burden_elem, bounty_elem] 
                 = match self.chapter {
                     Chapter::Story => self.story_sequence(i),
-                    Chapter::AStory => self.alter_story_sequence(i)
+                    Chapter::AStory => self.alter_story_sequence(i),
+                    Chapter::Towers => self.tower_sequence(i),
+                    Chapter::SpecialTowers => self.special_tower_sequence(i)
             };
 
             power.push(power_elem);
@@ -393,6 +421,8 @@ impl eframe::App for PlotProgram {
                     .show_ui(ui, |ui| {
                         if ui.selectable_value(&mut self.chapter, Chapter::Story, "Story").clicked() {recalc = true};
                         if ui.selectable_value(&mut self.chapter, Chapter::AStory, "Alter Story").clicked() {recalc = true};
+                        if ui.selectable_value(&mut self.chapter, Chapter::Towers, "Towers").clicked() {recalc = true};
+                        if ui.selectable_value(&mut self.chapter, Chapter::SpecialTowers, "Special Towers").clicked() {recalc = true};
                     });
                 ui.label("|");
                 if ui.checkbox(&mut self.bounty_view, "View bounty gifts").changed() {recalc = true};
@@ -444,7 +474,9 @@ impl eframe::App for PlotProgram {
             //set visibility of graphs
             let mut chart_list = match self.chapter {
                 Chapter::Story => vec![power_gifts, bonus_gifts, quick_gifts],
-                Chapter::AStory => vec![bonus_gifts, quick_gifts]
+                Chapter::AStory => vec![bonus_gifts, quick_gifts],
+                Chapter::Towers => vec![blessing_gifts, burden_gifts, bonus_gifts, quick_gifts],
+                Chapter::SpecialTowers => vec![power_gifts, burden_gifts, blessing_gifts, bonus_gifts]
             };
             if self.bounty_view {chart_list = vec![bounty_gifts]}
 
