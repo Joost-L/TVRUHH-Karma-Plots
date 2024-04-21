@@ -239,16 +239,66 @@ fn bounty_average_rank(karma:f64, chapter:Chapter) -> AverageRank {
     return result;
 }
 
+fn tower_initial_sequence(karma:f64) -> ([f64;3], [AverageRank;6]) {
+    let blessing_prob = gift_probabilities(karma, GType::Blessing, Chapter::Towers);
+    let two_gift_chance = blessing_prob.chosen[1];
+
+    //blessings
+    let mut blessing_ranks = [1.0, blessing_prob.rank_up[0], 0.0];
+    blessing_ranks[2] = blessing_ranks[1] * blessing_prob.rank_up[1];
+
+    //assume only one gift is found
+    let mut one_gift = [[0.0;3];6];
+    {
+        let blessing_rank2 = blessing_ranks[1] - blessing_ranks[2];
+
+        //burdens have a 25% chance to have a rank one lower than the blessing
+        let mut burden_ranks = [1.0, 0.0, 0.0];
+        burden_ranks[1] = blessing_ranks[1] - blessing_rank2 * 0.25;
+        burden_ranks[2] = blessing_ranks[2] * 0.75;
+
+        one_gift[GType::Blessing as usize] = blessing_ranks;
+        one_gift[GType::Burden as usize] = burden_ranks;
+    }
+
+    //assume two gifts are found
+    let mut two_gifts = [[0.0;3];6];
+    {
+        // burdens are 3 star unless none of the two blessings are 3 stars (then they will be 2 stars)
+        let mut burden_ranks = [1.0;3];
+        burden_ranks[2] = 1.0 - (1.0 - blessing_ranks[2])*(1.0 - blessing_ranks[2]);
+
+        two_gifts[GType::Blessing as usize] = blessing_ranks.map(|r| r*2.0);
+        two_gifts[GType::Burden as usize] = burden_ranks;
+        
+    }
+
+    let gift_ranks = merge(two_gifts, one_gift, two_gift_chance);
+    let remaining = [0.0, 0.0, 1.0 - two_gift_chance];
+    return (remaining, gift_ranks)
+}
+
+fn special_tower_initial_sequence(karma:f64, wonderful_count:usize) -> ([f64;3], [AverageRank;6]) {
+    panic!("Special towers isnt finished yet!");
+}
+
 /// Calculates the average number of gifts of each type after several "Try add gift" actions in a specific order
 /// 
 fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:Chapter) -> [AverageRank;6] {
     //data per gift
     let mut frequency = [0;6];
-    let mut result = [[0.0;3];6];
 
-    //open gift slots
-    let mut remaining = [1.0, 1.0, 1.0];
-    
+    //towers and special towers remove a set amount of gifts at the start
+    let (mut remaining, mut result) = match chapter {
+        Chapter::Towers => tower_initial_sequence(karma),
+        Chapter::SpecialTowers => special_tower_initial_sequence(karma, wonderful_count),
+        _ => ([1.0; 3], [[0.0; 3]; 6])
+    };
+
+    //first power gift counts for blessings
+    if let Chapter::SpecialTowers = chapter {frequency[3] += 1}
+
+
     //for wonderful gifts: the probability that you have i wonderful gifts
     let mut w_counts = [0.0,0.0,0.0];
 
@@ -297,12 +347,14 @@ fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:C
 
     return result;
 }
-
-fn merge(rankings1:[AverageRank;6], rankings2:[AverageRank;6]) -> [AverageRank;6] {
+/// Creates a new list or averageranks by summing the elements of two lists.
+/// The factor argument is the factor of the first list, while 1.0 -factor1 is the factor of the second list
+/// Hence if you choose factor 0.5 the resulting list will be the average of the two lists
+fn merge(rankings1:[AverageRank;6], rankings2:[AverageRank;6], factor1:f64) -> [AverageRank;6] {
     let mut result = [[0.0;3];6];
     for i in 0..=5 {
         for j in 0..=2 {
-            result[i][j] = 0.5* rankings1[i][j] + 0.5*rankings2[i][j];
+            result[i][j] = factor1* rankings1[i][j] + (1.0 - factor1)*rankings2[i][j];
         }
     }
     result
@@ -336,7 +388,8 @@ impl PlotProgram {
         let order2 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Quick, GType::Bonus, GType::Quick];
         return merge(
             try_gift_sequence(i, &order1, self.wonderful_count, self.chapter), 
-            try_gift_sequence(i, &order2, self.wonderful_count, self.chapter)
+            try_gift_sequence(i, &order2, self.wonderful_count, self.chapter),
+            0.5
         );
     }
 
@@ -346,8 +399,13 @@ impl PlotProgram {
     }
 
     fn tower_sequence(&self, i:f64) -> [AverageRank;6] {
-        let order = [GType::Bonus, GType::Quick];
-        try_gift_sequence(i,&order, 0, self.chapter)
+        let order1 = [GType::Bonus, GType::Quick];
+        let order2 = [GType::Quick, GType::Bonus];
+        return merge(
+            try_gift_sequence(i, &order1, 0, self.chapter),
+            try_gift_sequence(i, &order2, 0, self.chapter),
+            0.5
+        );        
     }
 
     fn special_tower_sequence(&self, i:f64) -> [AverageRank;6] {
@@ -355,7 +413,8 @@ impl PlotProgram {
         let order2 = [GType::Bonus, GType::Bonus, GType::Blessing];
         return merge(
             try_gift_sequence(i, &order1, self.wonderful_count, self.chapter), 
-            try_gift_sequence(i, &order2, self.wonderful_count, self.chapter)
+            try_gift_sequence(i, &order2, self.wonderful_count, self.chapter),
+            0.5
         );
     }
 
