@@ -16,7 +16,8 @@ struct PlotProgram {
     domain_settings:DomainSettings,
     gift_chance:GiftChance,
     wonderful_count:usize,
-    chapter:Chapter
+    chapter:Chapter,
+    bounty_view:bool
 }
 
 #[derive(Default,Clone)]
@@ -217,6 +218,15 @@ fn powhalf(x:usize) -> f64 {
     }
 }
 
+fn bounty_average_rank(karma:f64, chapter:Chapter) -> AverageRank {
+    let mut result = [0.0, 0.0, 0.0];
+    let prob = gift_probabilities(karma, GType::Bounty, chapter);
+    result[0] = prob.chosen[0];
+    result[1] = result[0] * prob.rank_up[0];
+    result[2] = result[1] * prob.rank_up[1];
+    return result;
+}
+
 /// Calculates the average number of gifts of each type after several "Try add gift" actions in a specific order
 /// 
 fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:Chapter) -> [AverageRank;6] {
@@ -265,7 +275,14 @@ fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:C
 
         frequency[gift_index] += 1;
     }
+
+    //wonderful gifts
     result[0][2] = w_counts[0] + w_counts[1] + w_counts[2];
+
+    //bounty gifts
+    result[5] = bounty_average_rank(karma, chapter);
+
+
     return result;
 }
 
@@ -370,12 +387,17 @@ impl eframe::App for PlotProgram {
         egui::CentralPanel::default().show(ctx, |ui| {
             //setting buttons
             let mut recalc = false;
-            egui::ComboBox::from_label("Chapter")
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_label("Chapter")
                     .selected_text(format!("{:?}",self.chapter))
                     .show_ui(ui, |ui| {
                         if ui.selectable_value(&mut self.chapter, Chapter::Story, "Story").clicked() {recalc = true};
                         if ui.selectable_value(&mut self.chapter, Chapter::AStory, "Alter Story").clicked() {recalc = true};
                     });
+                ui.label("|");
+                if ui.checkbox(&mut self.bounty_view, "View bounty gifts").changed() {recalc = true};
+            });
+            
 
             ui.horizontal(|ui| {
                 let settings = &mut self.domain_settings;
@@ -409,6 +431,7 @@ impl eframe::App for PlotProgram {
             });
             if recalc {self.recalc()}
 
+            // find barchart based on vector data
             let power_gifts = self.gift_chart(GType::Power, &self.gift_chance.power,"power");
             let blessing_gifts = self.gift_chart(GType::Blessing, &self.gift_chance.blessing,"blessing").map(|c| c.stack_on(&[&power_gifts[0]]));
             let burden_gifts = self.gift_chart(GType::Burden, &self.gift_chance.burden,"burden").map(|c| c.stack_on(&[&blessing_gifts[0]]));
@@ -417,11 +440,14 @@ impl eframe::App for PlotProgram {
             
             let bounty_gifts = self.gift_chart(GType::Bounty, &self.gift_chance.bounty, "bounty");
 
-
-            let chart_list = match self.chapter {
+            
+            //set visibility of graphs
+            let mut chart_list = match self.chapter {
                 Chapter::Story => vec![power_gifts, bonus_gifts, quick_gifts],
                 Chapter::AStory => vec![bonus_gifts, quick_gifts]
             };
+            if self.bounty_view {chart_list = vec![bounty_gifts]}
+
 
             egui_plot::Plot::new("my_plot")
                 .view_aspect(2.0)
