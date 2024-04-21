@@ -264,9 +264,12 @@ fn tower_initial_sequence(karma:f64) -> ([f64;3], [AverageRank;6]) {
     //assume two gifts are found
     let mut two_gifts = [[0.0;3];6];
     {
-        // burdens are 3 star unless none of the two blessings are 3 stars (then they will be 2 stars)
+        // burdens are 3 star it the second gift is a 3 star
         let mut burden_ranks = [1.0;3];
-        burden_ranks[2] = 1.0 - (1.0 - blessing_ranks[2])*(1.0 - blessing_ranks[2]);
+        burden_ranks[2] = blessing_ranks[2];
+
+        //There is a 75% chance the burden will be a 3 star if the first blessing is a 3 star but the second isnt
+        burden_ranks[2] += blessing_ranks[2] * (1.0 - blessing_ranks[2]) * 0.75;
 
         two_gifts[GType::Blessing as usize] = blessing_ranks.map(|r| r*2.0);
         two_gifts[GType::Burden as usize] = burden_ranks;
@@ -407,7 +410,7 @@ impl PlotProgram {
 
     fn story_sequence(&self, i:f64) -> [AverageRank;6] {
         let order1 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Bonus, GType::Quick, GType::Quick];
-        let order2 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Quick, GType::Bonus, GType::Quick];
+        let order2 = [GType::Power, GType::Power, GType::Power, GType::Quick, GType::Bonus, GType::Quick, GType::Bonus];
         return merge(
             try_gift_sequence(i, &order1, self.wonderful_count, self.chapter), 
             try_gift_sequence(i, &order2, self.wonderful_count, self.chapter),
