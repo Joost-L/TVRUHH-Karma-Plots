@@ -16,7 +16,8 @@ struct PlotProgram {
     domain_settings:DomainSettings,
     gift_chance:GiftChance,
     wonderful_count:usize,
-    chapter:Chapter
+    chapter:Chapter,
+    bounty_view:bool
 }
 
 #[derive(Default,Clone)]
@@ -31,6 +32,8 @@ struct GiftChance {
     power:Vec<AverageRank>,
     bonus:Vec<AverageRank>,
     quick:Vec<AverageRank>,
+    blessing:Vec<AverageRank>,
+    burden:Vec<AverageRank>,
     bounty:Vec<AverageRank>
 }
 
@@ -45,7 +48,10 @@ struct Probabilities {
 enum GType {
     Power,
     Bonus,
-    Quick
+    Quick,
+    Blessing,
+    Burden,
+    Bounty
 }
 
 #[derive(Copy, Clone, Debug, Default,PartialEq)]
@@ -54,21 +60,23 @@ enum Chapter {
     Story,
     AStory
 }
-enum GRank {
-    Simple,
-    Lovely,
-    Wonderful,
-}
 
 const POWER_COLORS:[&str;3] = ["#2a2a59","#44338e","#9b73d6"];
 const BONUS_COLORS:[&str;3] = ["#f0892b","#eabd57","#e3dc66"];
 const QUICK_COLORS:[&str;3] = ["#069c80","#0ebc80","#71e380"];
+const BLESS_COLORS:[&str;3] = ["#8534ae","#cf2be2","#f648e3"];
+const BURDN_COLORS:[&str;3] = ["#4a3845","#aa7799","#dec0c9"];
+const BOUNT_COLORS:[&str;3] = ["#527ea8","#66b5d5","#77e1ec"];
+
 
 fn gift_color(gift_type:GType, rank:usize)-> Color32 {
     let hex_color = match gift_type {
         GType::Power => POWER_COLORS[rank],
         GType::Bonus => BONUS_COLORS[rank],
-        GType::Quick => QUICK_COLORS[rank]
+        GType::Quick => QUICK_COLORS[rank],
+        GType::Blessing => BLESS_COLORS[rank],
+        GType::Burden => BURDN_COLORS[rank],
+        GType::Bounty => BOUNT_COLORS[rank]
     };
     egui::ecolor::Color32::from_hex(hex_color).unwrap()
 }
@@ -79,7 +87,12 @@ fn gift_probabilities(karma:f64, gift_type:GType, chapter:Chapter) -> Probabilit
     match gift_type {
         GType::Power => power_probabilities(karma, chapter),
         GType::Bonus => bonus_probabilities(karma, chapter),
-        GType::Quick => quick_probabilities(karma, chapter)
+        GType::Quick => quick_probabilities(karma, chapter),
+        GType::Bounty => bounty_probabilities(karma, chapter),
+        GType::Blessing => Probabilities { 
+            chosen: power_probabilities(karma,chapter).chosen, 
+            rank_up: quick_probabilities(karma,chapter).rank_up },
+        GType::Burden => panic!("Burdens do not have any probabilities")
     }
 }
 
@@ -151,6 +164,24 @@ fn quick_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
     
 }
 
+fn bounty_probabilities(karma:f64, chapter:Chapter) -> Probabilities {
+    match chapter {
+        Chapter::Story => Probabilities { 
+            chosen: [clamp(-0.02 + 0.2*karma, 0.0, 0.3), 0.0, 0.0], 
+            rank_up: [
+                clamp(0.1 + 0.5*karma, 0.1, 0.8),
+                clamp(-0.05 + 0.5*karma, 0.0, 0.5)
+            ] },
+        Chapter::AStory => Probabilities { 
+            chosen: [clamp(0.1 + 0.5*(karma - 1.0), 0.2, 0.8),0.0, 0.0], 
+            rank_up: [
+                clamp(0.2 + 0.5*(karma - 1.0), 0.2, 0.8),
+                clamp(0.1 + 0.4*(karma - 1.0), 0.1, 0.5)
+            ] }
+    }
+}
+
+
 // -------------- ARITHMATIC FUNCTIONS ---------------
 
 fn clamp(i:f64, min:f64, max:f64) -> f64 {
@@ -187,12 +218,21 @@ fn powhalf(x:usize) -> f64 {
     }
 }
 
+fn bounty_average_rank(karma:f64, chapter:Chapter) -> AverageRank {
+    let mut result = [0.0, 0.0, 0.0];
+    let prob = gift_probabilities(karma, GType::Bounty, chapter);
+    result[0] = prob.chosen[0];
+    result[1] = result[0] * prob.rank_up[0];
+    result[2] = result[1] * prob.rank_up[1];
+    return result;
+}
+
 /// Calculates the average number of gifts of each type after several "Try add gift" actions in a specific order
 /// 
-fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:Chapter) -> [AverageRank;3] {
+fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:Chapter) -> [AverageRank;6] {
     //data per gift
-    let mut frequency = [0,0,0];
-    let mut result = [[0.0;3];3];
+    let mut frequency = [0;6];
+    let mut result = [[0.0;3];6];
 
     //open gift slots
     let mut remaining = [1.0, 1.0, 1.0];
@@ -235,13 +275,20 @@ fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:C
 
         frequency[gift_index] += 1;
     }
+
+    //wonderful gifts
     result[0][2] = w_counts[0] + w_counts[1] + w_counts[2];
+
+    //bounty gifts
+    result[5] = bounty_average_rank(karma, chapter);
+
+
     return result;
 }
 
-fn merge(rankings1:[AverageRank;3], rankings2:[AverageRank;3]) -> [AverageRank;3] {
-    let mut result = [[0.0;3];3];
-    for i in 0..=2 {
+fn merge(rankings1:[AverageRank;6], rankings2:[AverageRank;6]) -> [AverageRank;6] {
+    let mut result = [[0.0;3];6];
+    for i in 0..=5 {
         for j in 0..=2 {
             result[i][j] = 0.5* rankings1[i][j] + 0.5*rankings2[i][j];
         }
@@ -272,7 +319,7 @@ impl PlotProgram {
         self.recalc_giftchance();
     }
 
-    fn story_sequence(&self, i:f64) -> [AverageRank;3] {
+    fn story_sequence(&self, i:f64) -> [AverageRank;6] {
         let order1 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Bonus, GType::Quick, GType::Quick];
         let order2 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Quick, GType::Bonus, GType::Quick];
         return merge(
@@ -281,7 +328,7 @@ impl PlotProgram {
         );
     }
 
-    fn alter_story_sequence(&self, i:f64) -> [AverageRank;3] {
+    fn alter_story_sequence(&self, i:f64) -> [AverageRank;6] {
         let order = [GType::Bonus, GType::Quick];
         try_gift_sequence(i, &order, 0, self.chapter)
     }
@@ -292,23 +339,24 @@ impl PlotProgram {
         let mut bonus = Vec::new();
         let mut quick = Vec::new();
         let mut bounty = Vec::new();
+        let mut blessing = Vec::new();
+        let mut burden = Vec::new();
         for i in karma_range {
             let i = *i as f64 / 100.0;
-            let [power_elem,bonus_elem, quick_elem] = match self.chapter {
-                Chapter::Story => self.story_sequence(i),
-                Chapter::AStory => self.alter_story_sequence(i)
+            let [power_elem, bonus_elem, quick_elem, bless_elem, burden_elem, bounty_elem] 
+                = match self.chapter {
+                    Chapter::Story => self.story_sequence(i),
+                    Chapter::AStory => self.alter_story_sequence(i)
             };
-            let mut bounty_elem = 1.0;
 
             power.push(power_elem);
             bonus.push(bonus_elem);
             quick.push(quick_elem);
-            bounty.push([bounty_elem, bounty_elem/2.0, bounty_elem/4.0]);
-            
-
-
+            blessing.push(bless_elem);
+            burden.push(burden_elem);
+            bounty.push(bounty_elem);
         }
-        self.gift_chance = GiftChance {power,bonus, quick,bounty};
+        self.gift_chance = GiftChance {power, bonus, quick, blessing, burden, bounty};
     }
 
     fn gift_chart(&self, gift_type:GType, average_ranks:&Vec<AverageRank>, name:&str) -> [plt::BarChart;3] {
@@ -339,12 +387,17 @@ impl eframe::App for PlotProgram {
         egui::CentralPanel::default().show(ctx, |ui| {
             //setting buttons
             let mut recalc = false;
-            egui::ComboBox::from_label("Chapter")
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_label("Chapter")
                     .selected_text(format!("{:?}",self.chapter))
                     .show_ui(ui, |ui| {
                         if ui.selectable_value(&mut self.chapter, Chapter::Story, "Story").clicked() {recalc = true};
                         if ui.selectable_value(&mut self.chapter, Chapter::AStory, "Alter Story").clicked() {recalc = true};
                     });
+                ui.label("|");
+                if ui.checkbox(&mut self.bounty_view, "View bounty gifts").changed() {recalc = true};
+            });
+            
 
             ui.horizontal(|ui| {
                 let settings = &mut self.domain_settings;
@@ -378,12 +431,24 @@ impl eframe::App for PlotProgram {
             });
             if recalc {self.recalc()}
 
-            let power_gifts = self.gift_chart(GType::Power,&self.gift_chance.power,"power");
-            let bonus_gifts = self.gift_chart(GType::Bonus,&self.gift_chance.bonus,"bonus").map(|c| c.stack_on(&[&power_gifts[0]]));
-            let quick_gifts = self.gift_chart(GType::Quick,&self.gift_chance.quick,"quick").map(|c| c.stack_on(&[&bonus_gifts[0]]));
+            // find barchart based on vector data
+            let power_gifts = self.gift_chart(GType::Power, &self.gift_chance.power,"power");
+            let blessing_gifts = self.gift_chart(GType::Blessing, &self.gift_chance.blessing,"blessing").map(|c| c.stack_on(&[&power_gifts[0]]));
+            let burden_gifts = self.gift_chart(GType::Burden, &self.gift_chance.burden,"burden").map(|c| c.stack_on(&[&blessing_gifts[0]]));
+            let bonus_gifts = self.gift_chart(GType::Bonus, &self.gift_chance.bonus,"bonus").map(|c| c.stack_on(&[&burden_gifts[0]]));
+            let quick_gifts = self.gift_chart(GType::Quick, &self.gift_chance.quick,"quick").map(|c| c.stack_on(&[&bonus_gifts[0]]));
+            
+            let bounty_gifts = self.gift_chart(GType::Bounty, &self.gift_chance.bounty, "bounty");
+
+            
+            //set visibility of graphs
+            let mut chart_list = match self.chapter {
+                Chapter::Story => vec![power_gifts, bonus_gifts, quick_gifts],
+                Chapter::AStory => vec![bonus_gifts, quick_gifts]
+            };
+            if self.bounty_view {chart_list = vec![bounty_gifts]}
 
 
-            let chart_list = [power_gifts, bonus_gifts, quick_gifts];
             egui_plot::Plot::new("my_plot")
                 .view_aspect(2.0)
                 .allow_drag(false)
