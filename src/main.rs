@@ -16,6 +16,7 @@ struct PlotProgram {
     domain_settings:DomainSettings,
     gift_chance:GiftChance,
     wonderful_count:usize,
+    chapter:Chapter
 }
 
 #[derive(Default,Clone)]
@@ -47,6 +48,12 @@ enum GType {
     Quick
 }
 
+#[derive(Copy, Clone, Debug, Default,PartialEq)]
+enum Chapter {
+    #[default]
+    Story,
+    AStory
+}
 enum GRank {
     Simple,
     Lovely,
@@ -68,16 +75,16 @@ fn gift_color(gift_type:GType, rank:usize)-> Color32 {
 
 // ------------------- GIFT SPECIFIC FUNCTIONS -----------------
 
-fn gift_probabilities(karma:f64, gift_type:GType) -> Probabilities {
+fn gift_probabilities(karma:f64, gift_type:GType, chapter:Chapter) -> Probabilities {
     match gift_type {
-        GType::Power => power_probabilities(karma),
-        GType::Bonus => bonus_probabilities(karma),
-        GType::Quick => quick_probabilities(karma)
+        GType::Power => power_probabilities(karma, chapter),
+        GType::Bonus => bonus_probabilities(karma, chapter),
+        GType::Quick => quick_probabilities(karma, chapter)
     }
 }
 
 
-fn power_probabilities(karma: f64) -> Probabilities {
+fn power_probabilities(karma: f64,chapter:Chapter) -> Probabilities {
     Probabilities {
         chosen: [
             1.0,
@@ -91,7 +98,7 @@ fn power_probabilities(karma: f64) -> Probabilities {
     }
 } 
 
-fn bonus_probabilities(karma: f64) -> Probabilities {
+fn bonus_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
     Probabilities { 
         chosen: [
             clamp(0.1 + 0.7*karma, 0.25, 0.9),
@@ -105,7 +112,7 @@ fn bonus_probabilities(karma: f64) -> Probabilities {
     }
 }
 
-fn quick_probabilities(karma: f64) -> Probabilities {
+fn quick_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
     Probabilities { 
         chosen: [
             clamp(0.1 + 0.3*karma, 0.15, 0.5),
@@ -157,7 +164,7 @@ fn powhalf(x:usize) -> f64 {
 
 /// Calculates the average number of gifts of each type after several "Try add gift" actions in a specific order
 /// 
-fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize) -> [AverageRank;3] {
+fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:Chapter) -> [AverageRank;3] {
     //data per gift
     let mut frequency = [0,0,0];
     let mut result = [[0.0;3];3];
@@ -174,7 +181,7 @@ fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize) -> [Avera
         if gift_freq >= 3 {
             panic!("Gift {gift_elem:?} occurred in the order list more than 3 times!\nlist:{order:?}")
         }
-        let prob = gift_probabilities(karma, *gift_elem);
+        let prob = gift_probabilities(karma, *gift_elem, chapter);
         let gift_chance = prob.chosen[gift_freq];
         let gifts_added = apply_probability(&mut remaining, gift_chance);
 
@@ -254,8 +261,8 @@ impl PlotProgram {
             let order1 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Bonus, GType::Quick, GType::Quick];
             let order2 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Quick, GType::Bonus, GType::Quick];
             let [power_elem,bonus_elem, quick_elem] = merge(
-                try_gift_sequence(i, &order1, self.wonderful_count), 
-                try_gift_sequence(i, &order2, self.wonderful_count)
+                try_gift_sequence(i, &order1, self.wonderful_count, self.chapter), 
+                try_gift_sequence(i, &order2, self.wonderful_count, self.chapter)
             );
 
             let mut bounty_elem = 1.0;
@@ -298,9 +305,19 @@ impl eframe::App for PlotProgram {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             //setting buttons
+            let mut recalc = false;
+            if egui::ComboBox::from_label("Chapter")
+                    .selected_text(format!("{:?}",self.chapter))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.chapter, Chapter::Story, "Story");
+                        ui.selectable_value(&mut self.chapter, Chapter::AStory, "Alter Story")
+                    }).response.changed() {
+                    recalc = true;
+                }
+
             ui.horizontal(|ui| {
                 let settings = &mut self.domain_settings;
-                let mut recalc = false;
+                
                 if ui.add(egui::DragValue::new(&mut settings.min)
                     .clamp_range(0..=settings.max)
                     .speed(1.0)
@@ -325,8 +342,10 @@ impl eframe::App for PlotProgram {
                     .prefix("gifts: ")).changed() {
                         recalc = true
                 }
-                if recalc {self.recalc()}
+                
+                
             });
+            if recalc {self.recalc()}
             let power_color = egui::ecolor::Color32::from_hex("#2a3c78").unwrap();
             let bonus_color = egui::ecolor::Color32::from_hex("#e3dc66").unwrap();
             let quick_color = egui::ecolor::Color32::from_hex("#51da6d").unwrap();
