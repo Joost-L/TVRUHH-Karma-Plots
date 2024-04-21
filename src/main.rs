@@ -67,7 +67,7 @@ const POWER_COLORS:[&str;3] = ["#2a2a59","#44338e","#9b73d6"];
 const BONUS_COLORS:[&str;3] = ["#f0892b","#eabd57","#e3dc66"];
 const QUICK_COLORS:[&str;3] = ["#069c80","#0ebc80","#71e380"];
 const BLESS_COLORS:[&str;3] = ["#8534ae","#cf2be2","#f648e3"];
-const BURDN_COLORS:[&str;3] = ["#4a3845","#aa7799","#dec0c9"];
+const BURDN_COLORS:[&str;3] = ["#8f3937","#c14552","#f03762"];
 const BOUNT_COLORS:[&str;3] = ["#527ea8","#66b5d5","#77e1ec"];
 
 
