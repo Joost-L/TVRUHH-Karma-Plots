@@ -58,14 +58,16 @@ enum GType {
 enum Chapter {
     #[default]
     Story,
-    AStory
+    AStory,
+    Towers,
+    SpecialTowers
 }
 
 const POWER_COLORS:[&str;3] = ["#2a2a59","#44338e","#9b73d6"];
 const BONUS_COLORS:[&str;3] = ["#f0892b","#eabd57","#e3dc66"];
 const QUICK_COLORS:[&str;3] = ["#069c80","#0ebc80","#71e380"];
 const BLESS_COLORS:[&str;3] = ["#8534ae","#cf2be2","#f648e3"];
-const BURDN_COLORS:[&str;3] = ["#4a3845","#aa7799","#dec0c9"];
+const BURDN_COLORS:[&str;3] = ["#8f3937","#c14552","#f03762"];
 const BOUNT_COLORS:[&str;3] = ["#527ea8","#66b5d5","#77e1ec"];
 
 
@@ -98,29 +100,30 @@ fn gift_probabilities(karma:f64, gift_type:GType, chapter:Chapter) -> Probabilit
 
 
 fn power_probabilities(karma: f64,chapter:Chapter) -> Probabilities {
-    match chapter {
-        Chapter::Story => Probabilities {
-            chosen: [
+    Probabilities {
+        chosen: match chapter {
+            Chapter::Story => [
                 1.0,
                 clamp(karma * 0.6, 0.1, 0.9),
                 clamp(karma - 0.9, 0.0, 0.9)
             ],
-            rank_up: [
-                clamp(0.12 + karma*0.5,0.12,0.8),
-                clamp(-0.04 + karma*0.4, 0.0, 0.45)
-            ]},
-        Chapter::AStory => Probabilities { 
-            chosen: [0.0;3], 
-            rank_up: [0.0;2] 
-        }
-
+            Chapter::AStory => [0.0;3],
+            Chapter::Towers | Chapter::SpecialTowers => [
+                1.0,
+                clamp(0.2*karma, 0.0, 0.5),
+                0.0
+            ]
+        },
+        rank_up: [
+            clamp(0.12 + karma*0.5,0.12,0.8),
+            clamp(-0.04 + karma*0.4, 0.0, 0.45)
+        ]
     }
-    
 } 
 
 fn bonus_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
     match chapter {
-        Chapter::Story => Probabilities { 
+        Chapter::Story | Chapter::Towers | Chapter::SpecialTowers => Probabilities { 
             chosen: [
                 clamp(0.1 + 0.7*karma, 0.25, 0.9),
                 clamp(0.7*karma, 0.1, 0.9),
@@ -143,7 +146,7 @@ fn bonus_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
 
 fn quick_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
     match chapter {
-        Chapter::Story => Probabilities { 
+        Chapter::Story | Chapter::Towers | Chapter::SpecialTowers => Probabilities { 
             chosen: [
                 clamp(0.1 + 0.3*karma, 0.15, 0.5),
                 clamp(0.05 + 0.3*karma, 0.05, 0.5),
@@ -151,7 +154,10 @@ fn quick_probabilities(karma: f64, chapter:Chapter) -> Probabilities {
             ],
             rank_up: [
                 clamp(0.1 + 0.6*karma, 0.15, 0.8),
-                clamp(-0.06 + 0.5*karma, 0.1, 0.8)
+                match chapter {
+                    Chapter::Story  => clamp(-0.06 + 0.5*karma, 0.0, 0.5),
+                    _               => clamp(-0.06 + 0.4*karma, 0.0, 0.5)
+                }
             ]},
         Chapter::AStory => Probabilities { 
             chosen: [clamp(0.05 + 0.3*karma, 0.05, 0.9),0.0,0.0], 
@@ -177,7 +183,13 @@ fn bounty_probabilities(karma:f64, chapter:Chapter) -> Probabilities {
             rank_up: [
                 clamp(0.2 + 0.5*(karma - 1.0), 0.2, 0.8),
                 clamp(0.1 + 0.4*(karma - 1.0), 0.1, 0.5)
-            ] }
+            ] },
+        Chapter::Towers | Chapter::SpecialTowers => Probabilities { 
+            chosen: [clamp(0.3*karma, 0.0, 0.5),0.0, 0.0], 
+            rank_up: [
+                clamp(0.1 + 0.4*karma, 0.1, 0.8),
+                clamp(-0.05 + 0.3*karma, 0.0, 0.5)
+            ] },
     }
 }
 
@@ -227,16 +239,88 @@ fn bounty_average_rank(karma:f64, chapter:Chapter) -> AverageRank {
     return result;
 }
 
+fn tower_initial_sequence(karma:f64) -> ([f64;3], [AverageRank;6]) {
+    let blessing_prob = gift_probabilities(karma, GType::Blessing, Chapter::Towers);
+    let two_gift_chance = blessing_prob.chosen[1];
+
+    //blessings
+    let mut blessing_ranks = [1.0, blessing_prob.rank_up[0], 0.0];
+    blessing_ranks[2] = blessing_ranks[1] * blessing_prob.rank_up[1];
+
+    //assume only one gift is found
+    let mut one_gift = [[0.0;3];6];
+    {
+        let blessing_rank2 = blessing_ranks[1] - blessing_ranks[2];
+
+        //burdens have a 25% chance to have a rank one lower than the blessing
+        let mut burden_ranks = [1.0, 0.0, 0.0];
+        burden_ranks[1] = blessing_ranks[1] - blessing_rank2 * 0.25;
+        burden_ranks[2] = blessing_ranks[2] * 0.75;
+
+        one_gift[GType::Blessing as usize] = blessing_ranks;
+        one_gift[GType::Burden as usize] = burden_ranks;
+    }
+
+    //assume two gifts are found
+    let mut two_gifts = [[0.0;3];6];
+    {
+        // burdens are 3 star unless none of the two blessings are 3 stars (then they will be 2 stars)
+        let mut burden_ranks = [1.0;3];
+        burden_ranks[2] = 1.0 - (1.0 - blessing_ranks[2])*(1.0 - blessing_ranks[2]);
+
+        two_gifts[GType::Blessing as usize] = blessing_ranks.map(|r| r*2.0);
+        two_gifts[GType::Burden as usize] = burden_ranks;
+        
+    }
+
+    let gift_ranks = merge(two_gifts, one_gift, two_gift_chance);
+    let remaining = [0.0, 0.0, 1.0 - two_gift_chance];
+    return (remaining, gift_ranks)
+}
+
+fn special_tower_initial_sequence(karma:f64, wonderful_count:usize) -> ([f64;3], [AverageRank;6]) {
+    let mut gift_ranks = [[0.0;3];6];
+    let power_prob = gift_probabilities(karma, GType::Power, Chapter::Towers);
+
+    //blessings
+    let mut power_ranks = [1.0, power_prob.rank_up[0], 0.0];
+    power_ranks[2] = power_ranks[1] * power_prob.rank_up[1] * powhalf(wonderful_count);
+
+    //burden split
+    let mut burden_ranks = [0.0;3];
+    burden_ranks[0] = power_ranks[1]/3.0;
+    burden_ranks[1] = power_ranks[2]/2.0;
+    burden_ranks[2] = burden_ranks[1];
+
+    //burden merge
+    burden_ranks[1] += burden_ranks[2];
+    burden_ranks[0] += burden_ranks[1];
+
+    //add results to the general list
+    gift_ranks[GType::Power as usize] = power_ranks;
+    gift_ranks[GType::Burden as usize] = burden_ranks;
+
+    let remaining = [0.0, 1.0 - burden_ranks[0], 1.0];
+    return (remaining, gift_ranks);
+}
+
 /// Calculates the average number of gifts of each type after several "Try add gift" actions in a specific order
 /// 
 fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:Chapter) -> [AverageRank;6] {
     //data per gift
     let mut frequency = [0;6];
-    let mut result = [[0.0;3];6];
 
-    //open gift slots
-    let mut remaining = [1.0, 1.0, 1.0];
-    
+    //towers and special towers remove a set amount of gifts at the start
+    let (mut remaining, mut result) = match chapter {
+        Chapter::Towers => tower_initial_sequence(karma),
+        Chapter::SpecialTowers => special_tower_initial_sequence(karma, wonderful_count),
+        _ => ([1.0; 3], [[0.0; 3]; 6])
+    };
+
+    //first power gift counts for blessings
+    if let Chapter::SpecialTowers = chapter {frequency[3] += 1}
+
+
     //for wonderful gifts: the probability that you have i wonderful gifts
     let mut w_counts = [0.0,0.0,0.0];
 
@@ -271,13 +355,13 @@ fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:C
                 acc_prob -= 1.0 - w_counts[i];
                 w_counts[i] += added_prob;
             }
+
+            //save the accumulated amount of wonderful gifts
+            result[0][2] = w_counts[0] + w_counts[1] + w_counts[2];
         }
 
         frequency[gift_index] += 1;
     }
-
-    //wonderful gifts
-    result[0][2] = w_counts[0] + w_counts[1] + w_counts[2];
 
     //bounty gifts
     result[5] = bounty_average_rank(karma, chapter);
@@ -285,12 +369,14 @@ fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:C
 
     return result;
 }
-
-fn merge(rankings1:[AverageRank;6], rankings2:[AverageRank;6]) -> [AverageRank;6] {
+/// Creates a new list or averageranks by summing the elements of two lists.
+/// The factor argument is the factor of the first list, while 1.0 -factor1 is the factor of the second list
+/// Hence if you choose factor 0.5 the resulting list will be the average of the two lists
+fn merge(rankings1:[AverageRank;6], rankings2:[AverageRank;6], factor1:f64) -> [AverageRank;6] {
     let mut result = [[0.0;3];6];
     for i in 0..=5 {
         for j in 0..=2 {
-            result[i][j] = 0.5* rankings1[i][j] + 0.5*rankings2[i][j];
+            result[i][j] = factor1* rankings1[i][j] + (1.0 - factor1)*rankings2[i][j];
         }
     }
     result
@@ -324,13 +410,34 @@ impl PlotProgram {
         let order2 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Quick, GType::Bonus, GType::Quick];
         return merge(
             try_gift_sequence(i, &order1, self.wonderful_count, self.chapter), 
-            try_gift_sequence(i, &order2, self.wonderful_count, self.chapter)
+            try_gift_sequence(i, &order2, self.wonderful_count, self.chapter),
+            0.5
         );
     }
 
     fn alter_story_sequence(&self, i:f64) -> [AverageRank;6] {
         let order = [GType::Bonus, GType::Quick];
         try_gift_sequence(i, &order, 0, self.chapter)
+    }
+
+    fn tower_sequence(&self, i:f64) -> [AverageRank;6] {
+        let order1 = [GType::Bonus, GType::Quick];
+        let order2 = [GType::Quick, GType::Bonus];
+        return merge(
+            try_gift_sequence(i, &order1, 0, self.chapter),
+            try_gift_sequence(i, &order2, 0, self.chapter),
+            0.5
+        );        
+    }
+
+    fn special_tower_sequence(&self, i:f64) -> [AverageRank;6] {
+        let order1 = [GType::Blessing, GType::Bonus, GType::Bonus];
+        let order2 = [GType::Bonus, GType::Bonus, GType::Blessing];
+        return merge(
+            try_gift_sequence(i, &order1, self.wonderful_count, self.chapter), 
+            try_gift_sequence(i, &order2, self.wonderful_count, self.chapter),
+            0.5
+        );
     }
 
     fn recalc_giftchance(&mut self) {
@@ -346,7 +453,9 @@ impl PlotProgram {
             let [power_elem, bonus_elem, quick_elem, bless_elem, burden_elem, bounty_elem] 
                 = match self.chapter {
                     Chapter::Story => self.story_sequence(i),
-                    Chapter::AStory => self.alter_story_sequence(i)
+                    Chapter::AStory => self.alter_story_sequence(i),
+                    Chapter::Towers => self.tower_sequence(i),
+                    Chapter::SpecialTowers => self.special_tower_sequence(i)
             };
 
             power.push(power_elem);
@@ -393,6 +502,8 @@ impl eframe::App for PlotProgram {
                     .show_ui(ui, |ui| {
                         if ui.selectable_value(&mut self.chapter, Chapter::Story, "Story").clicked() {recalc = true};
                         if ui.selectable_value(&mut self.chapter, Chapter::AStory, "Alter Story").clicked() {recalc = true};
+                        if ui.selectable_value(&mut self.chapter, Chapter::Towers, "Towers").clicked() {recalc = true};
+                        if ui.selectable_value(&mut self.chapter, Chapter::SpecialTowers, "Special Towers").clicked() {recalc = true};
                     });
                 ui.label("|");
                 if ui.checkbox(&mut self.bounty_view, "View bounty gifts").changed() {recalc = true};
@@ -433,18 +544,28 @@ impl eframe::App for PlotProgram {
 
             // find barchart based on vector data
             let power_gifts = self.gift_chart(GType::Power, &self.gift_chance.power,"power");
-            let blessing_gifts = self.gift_chart(GType::Blessing, &self.gift_chance.blessing,"blessing").map(|c| c.stack_on(&[&power_gifts[0]]));
-            let burden_gifts = self.gift_chart(GType::Burden, &self.gift_chance.burden,"burden").map(|c| c.stack_on(&[&blessing_gifts[0]]));
-            let bonus_gifts = self.gift_chart(GType::Bonus, &self.gift_chance.bonus,"bonus").map(|c| c.stack_on(&[&burden_gifts[0]]));
+            let mut blessing_gifts = self.gift_chart(GType::Blessing, &self.gift_chance.blessing,"blessing").map(|c| c.stack_on(&[&power_gifts[0]]));
+            let mut burden_gifts = self.gift_chart(GType::Burden, &self.gift_chance.burden,"burden").map(|c| c.stack_on(&[&blessing_gifts[0]]));
+            let mut bonus_gifts = self.gift_chart(GType::Bonus, &self.gift_chance.bonus,"bonus").map(|c| c.stack_on(&[&burden_gifts[0]]));
             let quick_gifts = self.gift_chart(GType::Quick, &self.gift_chance.quick,"quick").map(|c| c.stack_on(&[&bonus_gifts[0]]));
             
             let bounty_gifts = self.gift_chart(GType::Bounty, &self.gift_chance.bounty, "bounty");
 
-            
+            //different stack order for special tower mode
+            if let Chapter::SpecialTowers = self.chapter {
+                burden_gifts = burden_gifts.map(|c| c.stack_on(&[&power_gifts[0]]));
+                bonus_gifts = bonus_gifts.map(|c| c.stack_on(&[&burden_gifts[0]]));
+                blessing_gifts = blessing_gifts.map(|c| c.stack_on(&[&bonus_gifts[0]]));
+            }
+
+
+
             //set visibility of graphs
             let mut chart_list = match self.chapter {
                 Chapter::Story => vec![power_gifts, bonus_gifts, quick_gifts],
-                Chapter::AStory => vec![bonus_gifts, quick_gifts]
+                Chapter::AStory => vec![bonus_gifts, quick_gifts],
+                Chapter::Towers => vec![blessing_gifts, burden_gifts, bonus_gifts, quick_gifts],
+                Chapter::SpecialTowers => vec![power_gifts, burden_gifts, blessing_gifts, bonus_gifts]
             };
             if self.bounty_view {chart_list = vec![bounty_gifts]}
 

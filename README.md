@@ -10,6 +10,9 @@ This is the result for the gift distribution in normal story chapters. The heigh
 In Alter Story you get between 3 and 6 extra boss fights, these have a different gift distribution without power gifts
 ![Late Alter Story Chapter](example_pictures/AStory.png)
 
+In the new Tower mode you get both blessings and burdens on every gift, the burden you get is dependent on the rank of the blessing you receive. In towers you have normal chapters and special chapters (who have a different distribution).
+![Normal tower mode](example_pictures/Towers.png)
+
 In all categories you also have bounty gifts, these are independent of all other gifts. This is an example of the bounty gift distribution in story mode
 ![Normal Story Bounty gifts](example_pictures/Story_Bounty.png)
 # How to run
