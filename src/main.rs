@@ -239,6 +239,7 @@ fn bounty_average_rank(karma:f64, chapter:Chapter) -> AverageRank {
     return result;
 }
 
+// ----------------- INITIAL BLESSINGS/BURDENS FOR TOWER ------------------
 fn tower_initial_sequence(karma:f64) -> ([f64;3], [AverageRank;6]) {
     let blessing_prob = gift_probabilities(karma, GType::Blessing, Chapter::Towers);
     let two_gift_chance = blessing_prob.chosen[1];
@@ -402,12 +403,7 @@ impl PlotProgram {
         program
     }
 
-    fn recalc(&mut self) {
-        let settings = &self.domain_settings;
-        self.karma_range = (settings.min..=settings.max).step_by(settings.step as usize).collect();
-        self.recalc_giftchance();
-    }
-
+// ----------------------------- GIFT SEQUENCES -------------------------------------------
     fn story_sequence(&self, i:f64) -> [AverageRank;6] {
         let order1 = [GType::Power, GType::Power, GType::Power, GType::Bonus, GType::Bonus, GType::Quick, GType::Quick];
         let order2 = [GType::Power, GType::Power, GType::Power, GType::Quick, GType::Bonus, GType::Quick, GType::Bonus];
@@ -423,6 +419,8 @@ impl PlotProgram {
         try_gift_sequence(i, &order, 0, self.chapter)
     }
 
+
+// note that both the tower and special tower gift sequences do not include the initial blessing/burden combo    
     fn tower_sequence(&self, i:f64) -> [AverageRank;6] {
         let order1 = [GType::Bonus, GType::Quick];
         let order2 = [GType::Quick, GType::Bonus];
@@ -441,6 +439,13 @@ impl PlotProgram {
             try_gift_sequence(i, &order2, self.wonderful_count, self.chapter),
             0.5
         );
+    }
+
+// -------------------------- TOP LEVEL CALCULATIONS -----------------------------------
+    fn recalc(&mut self) {
+        let settings = &self.domain_settings;
+        self.karma_range = (settings.min..=settings.max).step_by(settings.step as usize).collect();
+        self.recalc_giftchance();
     }
 
     fn recalc_giftchance(&mut self) {
@@ -471,6 +476,8 @@ impl PlotProgram {
         self.gift_chance = GiftChance {power, bonus, quick, blessing, burden, bounty};
     }
 
+
+// --------------------- CHARTS -----------------------------------------
     fn gift_chart(&self, gift_type:GType, average_ranks:&Vec<AverageRank>, name:&str) -> [plt::BarChart;3] {
         let simple_gift =       self.single_rank_chart(gift_color(gift_type,0), 0, &average_ranks, &format!("{name} 1 star"));
         let lovely_gift =       self.single_rank_chart(gift_color(gift_type,1), 1, &average_ranks, &format!("{name} 2 star"));
