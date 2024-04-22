@@ -206,14 +206,13 @@ fn clamp(i:f64, min:f64, max:f64) -> f64 {
     }
 }
 
-fn apply_probability(remaining:&mut [f64;3], chance:f64) -> f64 {
+fn apply_probability(remaining:&mut [f64;3], chance:f64, factor:f64) -> f64 {
     let mut total_added = 0.0;
-    let mut accumulated_prob = 1.0;
+    let mut used_prob = 0.0;
     for i in 0..=2 {
-        let current = remaining[i] * chance * accumulated_prob;
-        
+        let current = (remaining[i] - used_prob) * chance *pow(factor,i);
+        used_prob += remaining[i] - used_prob;
         //added to later slots if current slot was full
-        accumulated_prob *= 1.0 - remaining[i];
 
         //fill up current slot
         total_added += current;
@@ -222,9 +221,9 @@ fn apply_probability(remaining:&mut [f64;3], chance:f64) -> f64 {
     total_added
 }
 
-fn powhalf(x:usize) -> f64 {
+fn pow(f:f64, x:usize) -> f64 {
     if x > 0 {
-        0.5*powhalf(x - 1)
+        f*pow(f,x - 1)
     } else {
         1.0
     }
@@ -288,7 +287,7 @@ fn special_tower_initial_sequence(karma:f64, wonderful_count:usize) -> ([f64;3],
 
     //blessings
     let mut power_ranks = [1.0, power_prob.rank_up[0], 0.0];
-    power_ranks[2] = power_ranks[1] * power_prob.rank_up[1] * powhalf(wonderful_count);
+    power_ranks[2] = power_ranks[1] * power_prob.rank_up[1] * pow(0.5, wonderful_count);
 
     //burden split
     let mut burden_ranks = [0.0;3];
@@ -325,8 +324,8 @@ fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:C
     if let Chapter::SpecialTowers = chapter {frequency[3] += 1}
 
 
-    //for wonderful gifts: the probability that you have i wonderful gifts
-    let mut w_counts = [0.0,0.0,0.0];
+    //for wonderful gifts, 1.0 - the chance you have i wonderful gifts
+    let mut w_remaining = [1.0,1.0,1.0];
 
     for gift_elem in order {
         let gift_index = *gift_elem as usize;
@@ -336,32 +335,23 @@ fn try_gift_sequence(karma:f64, order:&[GType], wonderful_count:usize, chapter:C
         }
         let prob = gift_probabilities(karma, *gift_elem, chapter);
         let gift_chance = prob.chosen[gift_freq];
-        let gifts_added = apply_probability(&mut remaining, gift_chance);
+        let gifts_added = apply_probability(&mut remaining, gift_chance, 1.0);
 
         result[gift_index][0] += gifts_added;
 
         //different rank calculations using gifts_added
         let rank2added = gifts_added * prob.rank_up[0];
         result[gift_index][1] +=  rank2added;
-        let rank3added = gifts_added * prob.rank_up[1];
-        result[gift_index][2] +=  rank3added;
+        let rank3added = rank2added * prob.rank_up[1];
+        
 
         if let GType::Power = gift_elem {
 
-            // we add the probability that we are in a situation where we have i gifts
-            // times the probability that we get a wonderful gift in that situation
-            // and add that to the probability we will receive i + 1 wonderful power gifts
-            let mut acc_prob = 1.0;
-            let rank3chance = rank2added * prob.rank_up[1];
-            for i in 0..=2 {
-                let situation_chance = (1.0 - w_counts[i]) * acc_prob;
-                let added_prob = situation_chance * rank3chance * powhalf(wonderful_count + i);
-                acc_prob -= 1.0 - w_counts[i];
-                w_counts[i] += added_prob;
-            }
-
-            //save the accumulated amount of wonderful gifts
-            result[0][2] = w_counts[0] + w_counts[1] + w_counts[2];
+            //rank 3 gift chance is halved every time you receive another wonderful power gift
+            let rank3added = rank3added * pow(0.5,wonderful_count);
+            result[0][2] += apply_probability(&mut w_remaining, rank3added, 0.5);
+        } else {
+            result[gift_index][2] +=  rank3added;
         }
 
         frequency[gift_index] += 1;
